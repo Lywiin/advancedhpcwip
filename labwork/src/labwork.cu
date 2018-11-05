@@ -351,14 +351,20 @@ __global__ void blurShared(uchar3* input, uchar3* output, int* coefficients, int
 
     for (int row = -3; row <= 3; row++) {
 	for (int col = -3; col <= 3; col++) {
-	    int tempTid = tid + row * width + col;
-	    //int tempTid = (row + 3) * 7 + col + 30;
-	    if (tempTid < 0) continue;
-	    if (tempTid >= width * height) continue;
+
+	    int tempTidx = tidx + col;
+	    int tempTidy = tidy + row;
+	    if (tempTidx < 0) return;
+	    if (tempTidx >= width) return;
+	    if (tempTidy < 0) return;
+	    if (tempTidy >= height) return;
+	    int tempTid = tempTidx + tempTidy * width;
+
+	    int coef = scoefficients[(row + 3) * 7 + col + 3];
 
 	    int gray = (input[tempTid].x + input[tempTid].y + input[tempTid].z) / 3;
-	    s += gray * scoefficients[(row + 3) * 7 + col + 3];
-	    weightsSum += scoefficients[(row + 3) * 7 + col + 3];
+	    s += gray * coef;
+	    weightsSum += coef;
 	}
     }
 
@@ -387,14 +393,17 @@ void Labwork::labwork5_GPU() {
     // cuda malloc: devInput, devOutput
 	uchar3 *devInput;
 	uchar3 *devOutput;
+	int *gpuCoefficients;
 	cudaMalloc(&devInput, inputImage->width * inputImage->height * 3);	
 	cudaMalloc(&devOutput, inputImage->width * inputImage->height * 3);
+	cudaMalloc(&gpuCoefficients, sizeof(coefficients));
 
     // cudaMemcpy: inputImage (hostInput) -> devInput
 	cudaMemcpy(devInput, inputImage->buffer, inputImage->width * inputImage->height * 3, cudaMemcpyHostToDevice);
+	cudaMemcpy(gpuCoefficients, coefficients, sizeof(coefficients), cudaMemcpyHostToDevice);
 
     // launch the kernel
-	blurShared<<<gridSize, blockSize>>>(devInput, devOutput, coefficients, inputImage->width, inputImage->height);
+	blurShared<<<gridSize, blockSize>>>(devInput, devOutput, gpuCoefficients, inputImage->width, inputImage->height);
 
     // cudaMemcpy: devOutput -> inputImage (host)
 	cudaMemcpy(outputImage, devOutput, inputImage->width * inputImage->height * 3, cudaMemcpyDeviceToHost);
@@ -402,6 +411,7 @@ void Labwork::labwork5_GPU() {
     // cudaFree
 	cudaFree(&devInput);
 	cudaFree(&devOutput);
+	cudaFree(&gpuCoefficients);
     
 }
 
