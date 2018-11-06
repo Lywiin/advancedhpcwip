@@ -524,8 +524,94 @@ void Labwork::labwork6_GPU() {
 
 }
 
-void Labwork::labwork7_GPU() {
+__global__ void grayscale2dConvert(uchar3* input, char* output, int width, int height) {
+    int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tidx > width) return;
+    int tidy = threadIdx.y + blockIdx.y * blockDim.y;
+    if (tidy > height) return;
+    int tid = tidx + tidy * width;
+    output[tid] = (input[tid].x + input[tid].y + input[tid].z) / 3;
+    //output[tid].z = output[tid].y = output[tid].x;
+}
 
+__global__ void stretchMinMax(char* input, char* output, int width, int height) {
+
+    extern __shared__ int cache[];
+
+    int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tidx > width) return;
+    int tidy = threadIdx.y + blockIdx.y * blockDim.y;
+    if (tidy > height) return;
+
+    unsigned int localtid = threadIdx.x + threadIdx.y * blockDim.x;
+    unsigned int tid = tidx + tidy * width;
+
+    cache[localtid] = input[tid];
+
+    __syncthreads();
+
+    for (int s = 1; s < blockDim.x; s *= 2) {
+	if (localtid % (s * 2) == 0) {
+	    cache[tid] = min(cache[tid], cache[tid + s]);
+	}
+	__syncthreads();
+    }
+
+    if (localtid == 0) {
+	output[blockIdx.x] = cache[0];
+    }
+
+}
+
+void Labwork::labwork7_GPU() {
+    // inputImage->width, inputImage->height    
+	int pixelCount = inputImage->width * inputImage->height;
+	outputImage = static_cast<char *>(malloc(pixelCount * 3));
+	char *grayImage = static_cast<char *>(malloc(pixelCount));
+
+	dim3 blockSize = dim3(32, 32);
+	dim3 gridSize = dim3((inputImage->width + 31) / blockSize.x, (inputImage->height + 31) / blockSize.y);
+
+	char *minArray = static_cast<char *>(malloc(gridSize.x * gridSize.y));
+
+    // cuda malloc: devInput, devOutput
+	uchar3 *devInput;
+	char *devGrayOutput;
+	char *devOutput;
+	cudaMalloc(&devInput, inputImage->width * inputImage->height * 3);
+	cudaMalloc(&devGrayOutput, pixelCount);
+	cudaMalloc(&devOutput, gridSize.x * gridSize.y);
+
+    // cudaMemcpy: inputImage (hostInput) -> devInput
+	cudaMemcpy(devInput, inputImage->buffer, inputImage->width * inputImage->height * 3, cudaMemcpyHostToDevice);
+
+    // launch stretch kernel
+	grayscale2dConvert<<<gridSize, blockSize>>>(devInput, devGrayOutput, inputImage->width, inputImage->height);
+	cudaMemcpy(grayImage, devGrayOutput, pixelCount, cudaMemcpyDeviceToHost);
+/*
+	for (int i = 0; i < pixelCount; i+=1) {
+	    if (i % inputImage->width < 32 && i < 32 * inputImage->width) {
+		printf("GRAY IMAGE %d : %d\n", i, grayImage[i]);
+	    }
+	}
+*/
+	stretchMinMax<<<gridSize, blockSize, pixelCount * sizeof(char)>>>(devGrayOutput, devOutput, inputImage->width, inputImage->height);
+
+    // cudaMemcpy: devOutput -> minArray (host)
+	cudaMemcpy(minArray, devOutput, gridSize.x * gridSize.y * sizeof(char), cudaMemcpyDeviceToHost);
+
+	for (int i = 0; i < 10; i+=1) {
+	     printf("MINARRAY %d : %d\n", i, minArray[i]);
+	}
+
+
+
+    // cudaFree
+	cudaFree(&devInput);
+	cudaFree(&devGrayOutput);
+	cudaFree(&devOutput);
+	free(grayImage);
+	free(minArray);
 }
 
 void Labwork::labwork8_GPU() {
