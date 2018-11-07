@@ -524,13 +524,14 @@ void Labwork::labwork6_GPU() {
 
 }
 
-__global__ void stretchMinMax(uchar3* input, uchar3* output, int width, int height) {
+__global__ void minMax(uchar3* input, uchar3* output, int width, int height) {
 
     extern __shared__ uchar3 cache[];
 
     int localtid = threadIdx.x;
     int tid = threadIdx.x + blockIdx.x * 2 * blockDim.x;
 
+    // precompute the first result, using cache[].x to store the min value and cache[].y to store the max value
     cache[localtid].x = min(input[tid].x, input[tid + blockDim.x].x);
     cache[localtid].y = max(input[tid].y, input[tid + blockDim.x].y);
     __syncthreads();
@@ -543,6 +544,7 @@ __global__ void stretchMinMax(uchar3* input, uchar3* output, int width, int heig
 	__syncthreads();
     }
 
+    // write the result of the block in the first element of the block
     if (localtid == 0) {
 	output[blockIdx.x].x = cache[0].x;
 	output[blockIdx.x].y = cache[0].y;
@@ -550,9 +552,19 @@ __global__ void stretchMinMax(uchar3* input, uchar3* output, int width, int heig
 
 }
 
+__global__ void stretch(uchar3* input, uchar3* output, unsigned int minValue, unsigned int maxValue) {
+
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+    float f = (float)((unsigned int)input[tid].x - minValue) / (float)(maxValue - minValue);
+    int g = f * 255;
+
+    output[tid].z = output[tid].y = output[tid].x = g;
+}
+
 void Labwork::labwork7_GPU() {
 
-    // inputImage->width, inputImage->height    
+    // init some variables    
 	int pixelCount = inputImage->width * inputImage->height;
 	outputImage = static_cast<char *>(malloc(pixelCount * 3));
 	uchar3 *grayImage = static_cast<uchar3 *>(malloc(pixelCount * 3));
@@ -561,54 +573,60 @@ void Labwork::labwork7_GPU() {
 	int blockSize = 1024;
 	int numBlock = pixelCount / blockSize;
 
-    // cuda malloc: devInput, devOutput
+    // cuda malloc
 	uchar3 *devInput;
-	uchar3 *devGrayOutput;
 	uchar3 *devOutput;
+	uchar3 *devGrayOutput;
+	uchar3 *devTempOutput;
 	cudaMalloc(&devInput, pixelCount * 3);
+	cudaMalloc(&devOutput, pixelCount * 3);
 	cudaMalloc(&devGrayOutput, pixelCount * 3);
-	cudaMalloc(&devOutput, numBlock * 3);
+	cudaMalloc(&devTempOutput, numBlock * 3);
 
     // cudaMemcpy: inputImage (hostInput) -> devInput
 	cudaMemcpy(devInput, inputImage->buffer, inputImage->width * inputImage->height * 3, cudaMemcpyHostToDevice);
 
-    // launch stretch kernel
+    // launch grayscale kernel to get gray image
 	grayscale<<<numBlock, blockSize>>>(devInput, devGrayOutput);
-/*
-	cudaMemcpy(grayImage, devGrayOutput, pixelCount * 3, cudaMemcpyDeviceToHost);
-	for (int i = 0; i < 1000; i+=1) {
-	    printf("GRAY IMAGE %d : %d\n", i, grayImage[i].x);
-	}
-*/
 
-	stretchMinMax<<<numBlock, blockSize / 2, blockSize * sizeof(unsigned char) * 3>>>(devGrayOutput, devOutput, inputImage->width, inputImage->height);
+    // launch minMax kernel once to get numBlock number of result that we will reduce after
+	minMax<<<numBlock, blockSize / 2, blockSize * sizeof(unsigned char) * 3>>>(devGrayOutput, devTempOutput, inputImage->width, inputImage->height);
 
+    // launch the same kernel again to reduce the number of result below the size of a block
 	int numBlockTemp = numBlock;
-
 	while (numBlockTemp > blockSize) {
 	    numBlockTemp /= blockSize;
-	    stretchMinMax<<<numBlockTemp, blockSize / 2, blockSize * sizeof(char) * 3>>>(devOutput, devOutput, inputImage->width, inputImage->height);
+	    minMax<<<numBlockTemp, blockSize / 2, blockSize * sizeof(char) * 3>>>(devTempOutput, devTempOutput, inputImage->width, inputImage->height);
 	}
 
-	stretchMinMax<<<1, blockSize / 2, blockSize * sizeof(char) * 3>>>(devOutput, devOutput, inputImage->width, inputImage->height);	
+    // launch the same kernel with one last block to compute the final result
+	minMax<<<1, blockSize / 2, blockSize * sizeof(char) * 3>>>(devTempOutput, devTempOutput, inputImage->width, inputImage->height);	
 
 	cudaError_t err = cudaGetLastError();
 	if (err != cudaSuccess)
 	    printf("Error: %s\n", cudaGetErrorString(err));
 
-    // cudaMemcpy: devOutput -> minArray (host)
-	cudaMemcpy(minMaxResult, devOutput, sizeof(char) * 3, cudaMemcpyDeviceToHost);
+    // cudaMemcpy: devOutput -> minMaxResult (host), get the result as uchar3
+	cudaMemcpy(minMaxResult, devTempOutput, sizeof(char) * 3, cudaMemcpyDeviceToHost);
 
-	unsigned char minValue = minMaxResult[0].x;
-	unsigned char maxValue = minMaxResult[0].y;
+    // get the min value from the x and the max value on the y as computed in the kernel
+	unsigned int minValue = minMaxResult[0].x;
+	unsigned int maxValue = minMaxResult[0].y;
 
 	printf("MIN VALUE : %d\n", minValue);
 	printf("MAX VALUE : %d\n", maxValue);
 	
+    // launch kernel to recalculate intensity for each pixel
+	stretch<<<numBlock, blockSize>>>(devGrayOutput, devOutput, minValue, maxValue);
+
+    // copy the result back to outputImage
+	cudaMemcpy(outputImage, devOutput, pixelCount * 3, cudaMemcpyDeviceToHost);
+
     // cudaFree
 	cudaFree(&devInput);
-	cudaFree(&devGrayOutput);
 	cudaFree(&devOutput);
+	cudaFree(&devGrayOutput);
+	cudaFree(&devTempOutput);
 	free(grayImage);
 	free(minMaxResult);
 }
