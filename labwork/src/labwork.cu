@@ -524,7 +524,9 @@ void Labwork::labwork6_GPU() {
 
 }
 
-__global__ void minMax(uchar3* input, uchar3* output, int width, int height) {
+/*
+//OLD minMax for gray image only
+__global__ void minMax(uchar3* input, uchar3* output) {
 
     extern __shared__ uchar3 cache[];
 
@@ -551,6 +553,56 @@ __global__ void minMax(uchar3* input, uchar3* output, int width, int height) {
     }
 
 }
+*/
+
+__global__ void minMax(uchar3* input, uchar3* output) {
+
+    extern __shared__ uchar3 cache[];
+
+    int localtid = threadIdx.x;
+    int tid = threadIdx.x + blockIdx.x * 2 * blockDim.x;
+
+    // store input values localy temporarly to reduce number of access to global memory
+    unsigned char inputX1 = input[tid].x;
+    unsigned char inputX2 = input[tid + blockDim.x].x;
+    unsigned char inputY1 = input[tid].y;
+    unsigned char inputY2 = input[tid + blockDim.x].y;
+    unsigned char inputZ1 = input[tid].z;
+    unsigned char inputZ2 = input[tid + blockDim.x].z;
+
+    // precompute the first result, using cache[].x to store the min value and cache[].y to store the max value, we use cache[].z too to prevent value of 0 we don't want
+    cache[localtid].x = min(min(min(inputX1, inputX2), min(inputY1, inputY2)), min(inputZ1, inputZ2));
+    cache[localtid].y = max(max(max(inputX1, inputX2), max(inputY1, inputY2)), max(inputZ1, inputZ2));
+    cache[localtid].z = max(max(max(inputX1, inputX2), max(inputY1, inputY2)), max(inputZ1, inputZ2));
+
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s /= 2) {
+	if (localtid < s) {
+
+	    // update local variables with cache variables
+	    inputX1 = cache[localtid].x;
+	    inputX2 = cache[localtid + s].x;
+	    inputY1 = cache[localtid].y;
+	    inputY2 = cache[localtid + s].y;
+	    inputZ1 = cache[localtid].z;
+	    inputZ2 = cache[localtid + s].z;
+
+	    // compute min and max
+	    cache[localtid].x = min(min(min(inputX1, inputX2), min(inputY1, inputY2)), min(inputZ1, inputZ2));
+	    cache[localtid].y = max(max(max(inputX1, inputX2), max(inputY1, inputY2)), max(inputZ1, inputZ2));
+	    cache[localtid].z = max(max(max(inputX1, inputX2), max(inputY1, inputY2)), max(inputZ1, inputZ2));
+	}
+	__syncthreads();
+    }
+
+    // write the result of the block in the first element of the block
+    if (localtid == 0) {
+	output[blockIdx.x].x = cache[0].x;
+	output[blockIdx.x].y = cache[0].y;
+	output[blockIdx.x].z = cache[0].y;
+    }
+}
 
 __global__ void stretch(uchar3* input, uchar3* output, unsigned int minValue, unsigned int maxValue) {
 
@@ -561,7 +613,7 @@ __global__ void stretch(uchar3* input, uchar3* output, unsigned int minValue, un
 
     output[tid].z = output[tid].y = output[tid].x = g;
 }
-
+	
 void Labwork::labwork7_GPU() {
 
     // init some variables    
@@ -590,17 +642,17 @@ void Labwork::labwork7_GPU() {
 	grayscale<<<numBlock, blockSize>>>(devInput, devGrayOutput);
 
     // launch minMax kernel once to get numBlock number of result that we will reduce after
-	minMax<<<numBlock, blockSize / 2, blockSize * sizeof(unsigned char) * 3>>>(devGrayOutput, devTempOutput, inputImage->width, inputImage->height);
+	minMax<<<numBlock, blockSize / 2, blockSize * sizeof(unsigned char) * 3>>>(devGrayOutput, devTempOutput);
 
     // launch the same kernel again to reduce the number of result below the size of a block
 	int numBlockTemp = numBlock;
 	while (numBlockTemp > blockSize) {
 	    numBlockTemp /= blockSize;
-	    minMax<<<numBlockTemp, blockSize / 2, blockSize * sizeof(char) * 3>>>(devTempOutput, devTempOutput, inputImage->width, inputImage->height);
+	    minMax<<<numBlockTemp, blockSize / 2, blockSize * sizeof(char) * 3>>>(devTempOutput, devTempOutput);
 	}
 
     // launch the same kernel with one last block to compute the final result
-	minMax<<<1, blockSize / 2, blockSize * sizeof(char) * 3>>>(devTempOutput, devTempOutput, inputImage->width, inputImage->height);	
+	minMax<<<1, blockSize / 2, blockSize * sizeof(char) * 3>>>(devTempOutput, devTempOutput);	
 
 	cudaError_t err = cudaGetLastError();
 	if (err != cudaSuccess)
@@ -631,8 +683,165 @@ void Labwork::labwork7_GPU() {
 	free(minMaxResult);
 }
 
+__global__ void rgb2hsv(uchar3* input, double* outh, double* outs, double* outv, int width, int height) {
+
+    int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tidx > width) return;
+    int tidy = threadIdx.y + blockIdx.y * blockDim.y;
+    if (tidy > height) return;
+    int tid = tidx + tidy * width;
+
+    // use local variables to save memory access
+    double r = (double)input[tid].x / 255.0;
+    double g = (double)input[tid].y / 255.0;
+    double b = (double)input[tid].z / 255.0;
+
+    // determine minValue
+    double minValue = r < g ? r : g;
+    minValue = minValue < b ? minValue : b;
+
+    // determine maxValue
+    double maxValue = r > g ? r : g;
+    maxValue = maxValue > b ? maxValue : b;
+
+    double delta = maxValue - minValue;
+
+    // use local variables to save memory access
+    double h = 0.0;
+    double s = 0.0;
+    double v = 0.0;
+
+    // set the V
+    v = maxValue;
+
+    // set the H
+    if (delta == 0) h = 0;
+    if (r >= maxValue) 
+	h = ((g - b) / delta) * 60.0;
+    else if (g >= maxValue) 
+	h = ((b - r) / delta + 2.0) * 60.0;
+    else 
+	h = ((r - g) / delta + 4.0) * 60.0;
+
+    // set the s
+    if (maxValue == 0)
+	s = 0;
+    else
+	s = delta / maxValue;
+
+    // write back result in outputs
+    outh[tid] = h;
+    outs[tid] = s;
+    outv[tid] = v;
+}
+
+__global__ void hsv2rgb(double* inh, double* ins, double* inv, uchar3* output, int width, int height) {
+
+    int tidx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tidx > width) return;
+    int tidy = threadIdx.y + blockIdx.y * blockDim.y;
+    if (tidy > height) return;
+    int tid = tidx + tidy * width;
+
+    // use local variables to save memory access
+    double h = inh[tid];
+    double s = ins[tid];
+    double v = inv[tid];
+
+    // calculate d, hi, f
+    double d = h / 60.0;
+    int hi = (int)d;
+    double f = d - hi;
+
+    // calculate l, m, n
+    double l = v * (1 - s);
+    double m = v * (1 - f * s);
+    double n = v * (1 - (1 - f) * s);
+
+    // use local variables to save memory access
+    double fr = 0.0;
+    double fg = 0.0;
+    double fb = 0.0;
+
+    // switch on the hue using hi that we calculated earlier
+    switch(hi) {
+	case 0:
+	    fr = v; fg = n; fb = l;
+	    break;
+	case 1:
+	    fr = m; fg = v; fb = l;
+	    break;
+	case 2:
+	    fr = l; fg = v; fb = n;
+	    break;	 
+	case 3:
+	    fr = l; fg = m; fb = v;
+	    break;
+	case 4:
+	    fr = n; fg = l; fb = v;
+	    break;
+	default:
+	    fr = v; fg = l; fb = m;
+	    break;
+    }
+
+    // convert back from [0...1] to [0...255]
+    int r = int(fr * 255.0);
+    int g = int(fg * 255.0);
+    int b = int(fb * 255.0);
+
+    // write back the result in output image
+    output[tid].x = r;
+    output[tid].y = g;
+    output[tid].z = b;
+
+}
+
 void Labwork::labwork8_GPU() {
 
+    // init some variables    
+	int pixelCount = inputImage->width * inputImage->height;
+	outputImage = static_cast<char *>(malloc(pixelCount * 3));
+	uchar3 *minMaxResult = static_cast<uchar3 *>(malloc(sizeof(char) *3));
+
+	dim3 block2DSize = dim3(32, 32);
+	dim3 gridSize = dim3((inputImage->width + 31) / block2DSize.x, (inputImage->height + 31) / block2DSize.y);
+
+    // cuda malloc
+	uchar3 *devInput;
+	uchar3 *devOutput;
+	cudaMalloc(&devInput, pixelCount * 3);
+	cudaMalloc(&devOutput, pixelCount * 3);
+
+	double *devOutputH;
+	double *devOutputS;
+	double *devOutputV;
+	cudaMalloc(&devOutputH, pixelCount * sizeof(double));
+	cudaMalloc(&devOutputS, pixelCount * sizeof(double));
+	cudaMalloc(&devOutputV, pixelCount * sizeof(double));
+
+    // cudaMemcpy: inputImage (hostInput) -> devInput
+	cudaMemcpy(devInput, inputImage->buffer, inputImage->width * inputImage->height * 3, cudaMemcpyHostToDevice);
+
+    // launch kernel for rgb to hsv convertion
+	rgb2hsv<<<gridSize, block2DSize>>>(devInput, devOutputH, devOutputS, devOutputV, inputImage->width, inputImage->height);
+
+    // launch kernel for rgb to hsv convertion
+	hsv2rgb<<<gridSize, block2DSize>>>(devOutputH, devOutputS, devOutputV, devOutput, inputImage->width, inputImage->height);
+
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess)
+	    printf("Error: %s\n", cudaGetErrorString(err));
+
+    // copy the result back to outputImage
+	cudaMemcpy(outputImage, devOutput, pixelCount * 3, cudaMemcpyDeviceToHost);
+	
+    // cudaFree
+	cudaFree(&devInput);
+	cudaFree(&devOutput);
+	cudaFree(&devOutputH);
+	cudaFree(&devOutputS);
+	cudaFree(&devOutputV);
 }
 
 void Labwork::labwork9_GPU() {
