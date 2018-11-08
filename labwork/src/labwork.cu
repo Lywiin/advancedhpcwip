@@ -717,7 +717,7 @@ __global__ void rgb2hsv(uchar3* input, double* outh, double* outs, double* outv,
     // set the H
     if (delta == 0) h = 0;
     if (r >= maxValue) 
-	h = ((g - b) / delta) * 60.0;
+	h = ((int)((g - b) / delta) % 6) * 60.0;
     else if (g >= maxValue) 
 	h = ((b - r) / delta + 2.0) * 60.0;
     else 
@@ -750,7 +750,7 @@ __global__ void hsv2rgb(double* inh, double* ins, double* inv, uchar3* output, i
 
     // calculate d, hi, f
     double d = h / 60.0;
-    int hi = (int)d;
+    int hi = (int)d % 6;
     double f = d - hi;
 
     // calculate l, m, n
