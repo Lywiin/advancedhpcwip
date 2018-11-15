@@ -1,6 +1,6 @@
-#include <stdio.h>
-#include <include/labwork.h>
-#include <cuda_runtime_api.h>
+#include <stdio.h> 
+#include <include/labwork.h> 
+#include <cuda_runtime_api.h> 
 #include <omp.h>
 
 #define ACTIVE_THREADS 4
@@ -844,12 +844,176 @@ void Labwork::labwork8_GPU() {
 	cudaFree(&devOutputV);
 }
 
-void Labwork::labwork9_GPU() {
 
+
+
+typedef struct {
+    int values[256];
+} Histo;
+
+__global__ void localHisto(uchar3* input, Histo* output, int width, int height, int regionSize) {
+
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    Histo lhisto;
+    int tempTid = 0;
+
+    for (int i = 0; i < regionSize; i++) {
+	tempTid = tid * regionSize + i;
+	if (tempTid > width * height)
+	    continue;
+	lhisto.values[input[tempTid].x] += 1;
+    }
+
+    for (int i = 0; i < 256; i++) {
+	output[tid].values[i] = lhisto.values[i];
+    }
+}
+
+__global__ void localHistoGather(Histo* input, int histoCount) {
+
+    int localtid = threadIdx.x;
+    int tid = blockIdx.x;
+
+    int halfHistoCount = ceil((double)histoCount / 2);
+    if (tid + halfHistoCount >= histoCount) return;
+    input[tid].values[localtid] += input[tid + halfHistoCount].values[localtid];
+}
+
+
+__global__ void histoProba(Histo* input, int n, double* proba) {
+    
+    int localtid = threadIdx.x;
+
+    proba[localtid] = ((double)input[0].values[localtid] / n);
+    __syncthreads();
+}
+
+__global__ void computeCdf(double* input, int* output) {
+
+    double cumul = 0;
+
+    for (int i = 0; i < 256; i++) {
+	cumul += input[i];
+	output[i] = (int)(cumul * 255.0);
+    }
+}
+
+__global__ void equalize(uchar3* input, uchar3* output, int* h) {
+    
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+    int e = h[input[tid].x];
+
+    output[tid].x = output[tid].y = output[tid].z = e;
+}
+
+void Labwork::labwork9_GPU() {
+    // init some variables    
+	int pixelCount = inputImage->width * inputImage->height;
+	int regionSize = inputImage->width;
+	outputImage = static_cast<char *>(malloc(pixelCount * 3));
+
+	int blockSize = 1024;
+	int numBlock = pixelCount / blockSize;
+	int numBlockRegion = ceil((double)numBlock / regionSize);
+
+	int histoCount = pixelCount / regionSize;
+	int histoNumBlock = histoCount;
+
+	Histo *localHistoResult = static_cast<Histo *>(malloc(histoCount * sizeof(Histo)));
+
+    // cuda malloc
+	uchar3 *devInput;
+	uchar3 *devOutput;
+	uchar3 *devGrayOutput;
+	Histo *devLocalOutput;
+	double *devProbaJ;
+	int *devCdf;
+	cudaMalloc(&devInput, pixelCount * 3);
+	cudaMalloc(&devOutput, pixelCount * 3);
+	cudaMalloc(&devGrayOutput, pixelCount * 3);
+	cudaMalloc(&devLocalOutput, histoCount * sizeof(Histo));
+	cudaMalloc(&devProbaJ, sizeof(double) * 256);
+	cudaMalloc(&devCdf, sizeof(int) * 256);
+
+    // cudaMemcpy: inputImage (hostInput) -> devInput
+	cudaMemcpy(devInput, inputImage->buffer, inputImage->width * inputImage->height * 3, cudaMemcpyHostToDevice);
+
+    // launch grayscale kernel to get gray image
+	grayscale<<<numBlock, blockSize>>>(devInput, devGrayOutput);
+
+    // launch kernel for local histogram calculation
+	localHisto<<<numBlockRegion, blockSize>>>(devGrayOutput, devLocalOutput, inputImage->width, inputImage->height, regionSize);
+
+    // launch kernel to gather histo results
+	do {
+		histoCount = histoNumBlock;
+		histoNumBlock = ceil((double)histoCount / 2);
+		localHistoGather<<<histoNumBlock, 256>>>(devLocalOutput, histoCount);
+	} while (histoCount > 1);
+
+/*
+	cudaMemcpy(localHistoResult, devLocalOutput, histoCount * sizeof(Histo), cudaMemcpyDeviceToHost);
+
+	int s = 0;
+	for (int i = 0; i < 256; i++) {
+		printf("%d: %d\n", i, localHistoResult[0].values[i]);
+		s += localHistoResult[0].values[i];
+	}
+	printf("SUM: %d\n", s);
+	printf("PX COUNT: %d\n", pixelCount);
+*/
+
+    // calculate probability of given intensity j
+	histoProba<<<1, 256>>>(devLocalOutput, pixelCount, devProbaJ);
+
+/*
+	double probaJ[256];
+	cudaMemcpy(probaJ, devProbaJ, 256 * sizeof(double), cudaMemcpyDeviceToHost);
+	
+	double s = 0;
+	for (int i = 0; i < 256; i++) {
+		printf("%d: %lf\n", i, probaJ[i]); 
+		s += probaJ[i];
+	}
+	printf("SUM: %lf\n", s);
+*/
+
+    // calculate cdf array of range [0 ... 255]
+	computeCdf<<<1, 1>>>(devProbaJ, devCdf);
+
+/*
+	int cdf[256];
+	cudaMemcpy(cdf, devCdf, 256 * sizeof(int), cudaMemcpyDeviceToHost);
+
+	for (int i = 0; i < 256; i++) {
+		printf("%d: %d\n", i, cdf[i]); 
+	}
+*/
+
+    // equalize image
+	equalize<<<numBlock, blockSize>>>(devGrayOutput, devOutput, devCdf);
+
+
+    // copy the result back to outputImage
+	cudaMemcpy(outputImage, devOutput, pixelCount * 3, cudaMemcpyDeviceToHost);
+
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess)
+	    printf("Error: %s\n", cudaGetErrorString(err));
+
+	
+    // cudaFree
+	cudaFree(&devInput);
+	cudaFree(&devOutput);
+	cudaFree(&devGrayOutput);
+	cudaFree(&devLocalOutput);
+	cudaFree(&devProbaJ);
+	cudaFree(&devCdf);
+	free(localHistoResult);
 }
 
 void Labwork::labwork10_GPU() {
 
 }
-
 
