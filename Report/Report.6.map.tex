@@ -1,0 +1,38 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{ Report.6.map}
+\author{Remi}
+\date{November 2018}
+
+\begin{document}
+
+\maketitle
+
+\section{How to use}
+
+\begin{verbatim}
+./labwork 6 [image1] [a, b, c] [(Optional)image2]
+\end{verbatim}
+
+\section{Explain how you implement the labwork}
+
+The labwork works the following way:
+\begin{enumerate}  
+\item Initialize input and output image as usual
+\item Switch depending on the mode choosen
+    \subitem One kernel for binarization
+        \subsubitem Ask for a threshold
+        \subsubitem For each pixel, replace the value of the pixel by 0 or 255 depending on the threshold chosen
+    \subitem One kernel for brightness
+        \subsubitem Ask for a value to add to each pixel
+        \subsubitem For each pixel add to value while keeping the range between 0 and 255
+    \subitem One kernel for blending
+        \subsubitem Ask for blending weight of the first image
+        \subsubitem Use image passed as optional parameter as second image
+        \subsubitem For each pixel, blend the value of both image's pixel according to the weight chosen
+\item Finally, the new value of the output is set
+\end{enumerate}
+
+
+\end{document}

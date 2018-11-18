@@ -1,0 +1,39 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{Report.8.scatter}
+\author{Remi}
+\date{November 2018}
+
+\begin{document}
+
+\maketitle
+
+\section{Explain how you implement the labwork}
+
+The labwork works the following way:
+\begin{enumerate}  
+\item Create a struct HSV which contains 3 arrays of double
+\item Initialize input and output image as usual
+\item Launch a first kernel to convert the image from rgb to hsv
+    \subitem Store input in local variable to save access to global memory
+    \subitem Find the min and max value between RGB
+    \subitem Calculate HSV from the formula and put back result into local variables
+    \subitem Then put back the final result into the output
+\item Launch a second kernel to convert the image from hsv to rgb
+    \subitem Store input into local variable to save access to global memory
+    \subitem Calculate d, hi, f, l, m, n from the inputs
+    \subitem Calculate new RGB values from these depending of hi value
+    \subitem Put back the result into the output
+\item Finally, write back the output image
+\end{enumerate}
+
+\section{Explain and measure speedup, if you have performance optimizations}
+As I said in the previous block I used the following optimization:
+\begin{enumerate}  
+\item - Store input variables to local variable to save global memory access
+\end{enumerate}
+
+Same as previous labwork, hard to know the speedup of these optimization since I wrote an optimized version first...
+
+\end{document}

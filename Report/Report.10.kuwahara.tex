@@ -1,0 +1,46 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{Report.10.kuwahara}
+\author{Remi}
+\date{November 2018}
+
+\begin{document}
+
+\maketitle
+
+\section{Explain how you implement the labwork}
+
+The labwork works the following way:
+\begin{enumerate}  
+\item Create a struct SD which contain a double with the value of a standard deviation and a uchar3 containing the mean of a RGB pixel
+\item Launch rgb2hsv kernel to convert input image to HSV
+\item Launch the kernel that will compute the minimum standard deviation for each pixel
+    \subitem First, calculate the border of the window chosen to not overlap image size
+    \subitem Initialize some local variables that will be usefull to calculate the mean of V, R, G, B or the number of pixel in the window
+    \subitem Do a first double for loop on the grid to sum the value V, R, G, B of each pixel for each window
+    \subitem Do a for loop to calculate the mean for each window
+    \subitem Do another double for loop to sum values in preparation for the standard deviation
+    \subitem Do a final for loop to calculate the standard deviation of each window
+    \subitem Find the minimum standard deviation and return that struct
+\item Launch a final kernel to apply the computed mean RGB to each pixel
+\item Finally, write back the output image
+\end{enumerate}
+
+\section{Explain and measure speedup, if you have performance optimizations}
+For this labwork, I used the following optimization:
+\begin{enumerate}  
+\item - Store input variables to local variable to save global memory access
+\end{enumerate}
+
+Same as previous labwork, hard to know the speedup of these optimization since I wrote an optimized version first...
+
+\ 
+
+However, I think my algorithm can be improve doing the following:
+\begin{enumerate}  
+\item - Get rid of the structure which is not that useful here
+\item - Assign the means in the same kernel instead of starting a new one
+\end{enumerate}
+
+\end{document}

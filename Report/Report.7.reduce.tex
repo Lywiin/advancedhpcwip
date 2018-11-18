@@ -1,0 +1,54 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{Report.7.reduce}
+\author{Remi}
+\date{November 2018}
+
+\begin{document}
+
+\maketitle
+
+\section{Explain how you implement the labwork}
+
+The labwork works the following way:
+\begin{enumerate}  
+\item Initialize input and output image as usual
+\item Use grayscale kernel we created earlier to transform our image into grayscale image
+\item Launch minmax kernel a first time, which will calculate the min and max value within the image
+    \subitem Init shared variable by precomputing first result on the current reduce
+    \subitem Use uchar3 to store min values into x and max values into y variables
+    \subitem Then compute the rest of the reduce in an optimized way
+        \subsubitem - Store input variables to local variable to save global memory access
+        \subsubitem - No branch diversion
+        \subsubitem - No memory bank conflict
+        \subsubitem - No idle thread by reducing the number of thread launched by 2
+    \subitem Write back the first input or the shared variable to the output with block index as index
+\item Do a while loop launching minmax kernel again but with half the number of block each time
+\item When number of block is 1, launch the minmax kernel a last time with 1 block then write back the first output x as min and y as max
+\item Launch a last kernel called stretch to map the values of each pixel from the original range to a range from 0 to 255
+\item Finally, write back the output image
+\end{enumerate}
+
+\section{Explain and measure speedup, if you have performance optimizations}
+As I said in the previous block I used the following optimization:
+\begin{enumerate}  
+\item - Store input variables to local variable to save global memory access
+\item - No branch diversion
+\item - No memory bank conflict
+\item - No idle thread by reducing the number of thread launched by 2
+\end{enumerate}
+
+Hard to know the speedup of these optimization though, since I wrote an optimized version first...
+
+\section{Try experimenting with different 2D block size values}
+
+I worked only in 1D in this labwork since it was simpler to understand, but here are the results of my experimentations:
+\begin{enumerate} 
+\item 256: takes about 26ms
+\item 512: takes about 26ms
+\item 1024: takes about 25ms
+\item 2048: doesn't work anymore
+\end{enumerate}
+Here the difference is not really noticeable.
+\end{document}

@@ -1,0 +1,41 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{ Report.5.gaussian.blur}
+\author{Remi}
+\date{November 2018}
+
+\begin{document}
+
+\maketitle
+
+\section{Explain how you implement the Gaussian Blur filter}
+
+I followed the following steps:
+\begin{enumerate}  
+\item Initialize input and output image as usual
+\item I created two kernels
+    \subitem One without shared memory
+    \subitem One with shared memory
+\item The only difference is the following:
+    \subitem In the first one, the gaussian blur matrix is stored in the kernel in each thread
+    \subitem In the second one, the gaussian blur matrix is stored in a shared variable, so one by block
+\item Then for each kernel I do a double for loop to calculate the mean of each pixel with the weights in the gaussian blur matrix
+\item Finally, the new value of the output is set
+\end{enumerate}
+
+\section{Try experimenting with different 2D block size values}
+
+I tried experimenting with the following sizes:
+\begin{enumerate} 
+\item 8x8: takes about 29ms
+\item 16x16: takes about 25ms
+\item 32x32: takes about 26ms
+\item 64x64: doesn't work anymore
+\end{enumerate}
+The more efficient seems to be 16x16 block size
+
+\section{Compare speed between non-shared and shared memory}
+Surprisingly, the speedup is not noticeable in this example between non-shared and shared memory.
+
+\end{document}

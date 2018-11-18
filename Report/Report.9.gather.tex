@@ -1,0 +1,37 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{Report.9.gather}
+\author{Remi}
+\date{November 2018}
+
+\begin{document}
+
+\maketitle
+
+\section{Explain how you implement the labwork}
+
+The labwork works the following way:
+\begin{enumerate}  
+\item Create a struct Histo which contains one array of int if size 256
+\item Launch grayscale kernel to convert input image to gray image
+\item Launch a first kernel to create local histograms from a part of the image (1 thread per line in my case, so height numbers of histo)
+    \subitem Create a local empty histogram
+    \subitem For each pixel increment the corresponding index of the histogram
+    \subitem Write back the local histo in the output array
+\item Launch a second kernel in a while loop to gather those histograms together until all the values are put together
+\item Launch a third kernel to calculate probability of given intensity J
+\item Launch a fourth kernel to compute cdf for each pixel
+\item Launch a fifth kernel to equalize each pixel with the calculated h
+\item Finally, write back the output image
+\end{enumerate}
+
+\section{Explain and measure speedup, if you have performance optimizations}
+For this labwork, I used the following optimization:
+\begin{enumerate}  
+\item - Store input variables to local variable to save global memory access
+\end{enumerate}
+
+Same as previous labwork, hard to know the speedup of these optimization since I wrote an optimized version first...
+
+\end{document}
