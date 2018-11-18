@@ -42,65 +42,81 @@ int main(int argc, char **argv) {
         labwork.loadInputImage2(inputFilename2);
     }
 
+    if (lwNum == 10 ) {
+	labwork.kuwaSize = atoi(argv[3]);
+    }
+
 
     printf("Starting labwork %d\n", lwNum);
     Timer timer;
     timer.start();
     switch (lwNum) {
         case 1:
+            timer.start();
             labwork.labwork1_CPU();
-            labwork.saveOutputImage("labwork2-cpu-out.jpg");
             printf("labwork 1 CPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
+            labwork.saveOutputImage("labwork2-cpu-out.jpg");
             timer.start();
             labwork.labwork1_OpenMP();
+            printf("labwork 1 OPENMP ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
             labwork.saveOutputImage("labwork2-openmp-out.jpg");
             break;
         case 2:
+	    timer.start();
             labwork.labwork2_GPU();
+            printf("labwork 2 CPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
             break;
         case 3:
 	    timer.start();
             labwork.labwork3_GPU();
-            labwork.saveOutputImage("labwork3-gpu-out.jpg");
             printf("labwork 3 CPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
+            labwork.saveOutputImage("labwork3-gpu-out.jpg");
             break;
         case 4:
 	    timer.start();
             labwork.labwork4_GPU();
-            labwork.saveOutputImage("labwork4-gpu-out.jpg");
             printf("labwork 4 CPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
+            labwork.saveOutputImage("labwork4-gpu-out.jpg");
             break;
         case 5:
 	    timer.start();
             labwork.labwork5_CPU();
-            labwork.saveOutputImage("labwork5-cpu-out.jpg");
             printf("labwork 5 CPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
+            labwork.saveOutputImage("labwork5-cpu-out.jpg");
             timer.start();
 	    labwork.labwork5_GPU();
-            labwork.saveOutputImage("labwork5-gpu-out.jpg");
             printf("labwork 5 GPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
+            labwork.saveOutputImage("labwork5-gpu-out.jpg");
             break;
         case 6:
+	    timer.start();
 	    labwork.labwork6_GPU();
+            printf("labwork 6 GPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
             labwork.saveOutputImage("labwork6-gpu-out.jpg");
             break;
         case 7:
+	    timer.start();
             labwork.labwork7_GPU();
+            printf("labwork 7 GPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
             labwork.saveOutputImage("labwork7-gpu-out.jpg");
             break;
         case 8:
+	    timer.start();
             labwork.labwork8_GPU();
+            printf("labwork 8 GPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
             labwork.saveOutputImage("labwork8-gpu-out.jpg");
             break;
         case 9:
+	    timer.start();
             labwork.labwork9_GPU();
+            printf("labwork 9 GPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
             labwork.saveOutputImage("labwork9-gpu-out.jpg");
             break;
         case 10:
             timer.start();
             labwork.labwork10_GPU();
-            labwork.saveOutputImage("labwork10-gpu-out.jpg");
             printf("labwork 10 GPU ellapsed %.1fms\n", lwNum, timer.getElapsedTimeInMilliSec());
+            labwork.saveOutputImage("labwork10-gpu-out.jpg");
             break;
     }
 }
@@ -406,6 +422,7 @@ void Labwork::labwork5_GPU() {
 	cudaMemcpy(gpuCoefficients, coefficients, sizeof(coefficients), cudaMemcpyHostToDevice);
 
     // launch the kernel
+//	blur<<<gridSize, blockSize>>>(devInput, devOutput, inputImage->width, inputImage->height);
 	blurShared<<<gridSize, blockSize>>>(devInput, devOutput, gpuCoefficients, inputImage->width, inputImage->height);
 
     // cudaMemcpy: devOutput -> inputImage (host)
@@ -527,36 +544,6 @@ void Labwork::labwork6_GPU() {
 
 }
 
-/*
-//OLD minMax for gray image only
-__global__ void minMax(uchar3* input, uchar3* output) {
-
-    extern __shared__ uchar3 cache[];
-
-    int localtid = threadIdx.x;
-    int tid = threadIdx.x + blockIdx.x * 2 * blockDim.x;
-
-    // precompute the first result, using cache[].x to store the min value and cache[].y to store the max value
-    cache[localtid].x = min(input[tid].x, input[tid + blockDim.x].x);
-    cache[localtid].y = max(input[tid].y, input[tid + blockDim.x].y);
-    __syncthreads();
-
-    for (int s = blockDim.x / 2; s > 0; s /= 2) {
-	if (localtid < s) {
-	    cache[localtid].x = min(cache[localtid].x, cache[localtid + s].x);
-	    cache[localtid].y = max(cache[localtid].y, cache[localtid + s].y);
-	}
-	__syncthreads();
-    }
-
-    // write the result of the block in the first element of the block
-    if (localtid == 0) {
-	output[blockIdx.x].x = cache[0].x;
-	output[blockIdx.x].y = cache[0].y;
-    }
-
-}
-*/
 
 __global__ void minMax(uchar3* input, uchar3* output) {
 
@@ -687,121 +674,6 @@ void Labwork::labwork7_GPU() {
 }
 
 
-/*
-__global__ void rgb2hsv(uchar3* input, double* outh, double* outs, double* outv, int width, int height) {
-
-    int tidx = threadIdx.x + blockIdx.x * blockDim.x;
-    if (tidx > width) return;
-    int tidy = threadIdx.y + blockIdx.y * blockDim.y;
-    if (tidy > height) return;
-    int tid = tidx + tidy * width;
-
-    // use local variables to save memory access
-    double r = (double)input[tid].x / 255.0;
-    double g = (double)input[tid].y / 255.0;
-    double b = (double)input[tid].z / 255.0;
-
-    // determine minValue
-    double minValue = r < g ? r : g;
-    minValue = minValue < b ? minValue : b;
-
-    // determine maxValue
-    double maxValue = r > g ? r : g;
-    maxValue = maxValue > b ? maxValue : b;
-
-    double delta = maxValue - minValue;
-
-    // use local variables to save memory access
-    double h = 0.0;
-    double s = 0.0;
-    double v = 0.0;
-
-    // set the V
-    v = maxValue;
-
-    // set the H
-    if (delta == 0) h = 0;
-    if (r >= maxValue) 
-	h = ((int)((g - b) / delta) % 6) * 60.0;
-    else if (g >= maxValue) 
-	h = ((b - r) / delta + 2.0) * 60.0;
-    else 
-	h = ((r - g) / delta + 4.0) * 60.0;
-
-    // set the s
-    if (maxValue == 0)
-	s = 0;
-    else
-	s = delta / maxValue;
-
-    // write back result in outputs
-    outh[tid] = h;
-    outs[tid] = s;
-    outv[tid] = v;
-}
-
-__global__ void hsv2rgb(double* inh, double* ins, double* inv, uchar3* output, int width, int height) {
-
-    int tidx = threadIdx.x + blockIdx.x * blockDim.x;
-    if (tidx > width) return;
-    int tidy = threadIdx.y + blockIdx.y * blockDim.y;
-    if (tidy > height) return;
-    int tid = tidx + tidy * width;
-
-    // use local variables to save memory access
-    double h = inh[tid];
-    double s = ins[tid];
-    double v = inv[tid];
-
-    // calculate d, hi, f
-    double d = h / 60.0;
-    int hi = (int)d % 6;
-    double f = d - hi;
-
-    // calculate l, m, n
-    double l = v * (1 - s);
-    double m = v * (1 - f * s);
-    double n = v * (1 - (1 - f) * s);
-
-    // use local variables to save memory access
-    double fr = 0.0;
-    double fg = 0.0;
-    double fb = 0.0;
-
-    // switch on the hue using hi that we calculated earlier
-    switch(hi) {
-	case 0:
-	    fr = v; fg = n; fb = l;
-	    break;
-	case 1:
-	    fr = m; fg = v; fb = l;
-	    break;
-	case 2:
-	    fr = l; fg = v; fb = n;
-	    break;	 
-	case 3:
-	    fr = l; fg = m; fb = v;
-	    break;
-	case 4:
-	    fr = n; fg = l; fb = v;
-	    break;
-	default:
-	    fr = v; fg = l; fb = m;
-	    break;
-    }
-
-    // convert back from [0...1] to [0...255]
-    int r = int(fr * 255.0);
-    int g = int(fg * 255.0);
-    int b = int(fb * 255.0);
-
-    // write back the result in output image
-    output[tid].x = r;
-    output[tid].y = g;
-    output[tid].z = b;
-
-}
-*/
 
 typedef struct {
     double* h;
@@ -945,24 +817,13 @@ void Labwork::labwork8_GPU() {
 	cudaMalloc((void**)&devHSV.s, pixelCount * sizeof(double));
 	cudaMalloc((void**)&devHSV.v, pixelCount * sizeof(double));
 
-/*
-	double *devOutputH;
-	double *devOutputS;
-	double *devOutputV;
-	cudaMalloc(&devOutputH, pixelCount * sizeof(double));
-	cudaMalloc(&devOutputS, pixelCount * sizeof(double));
-	cudaMalloc(&devOutputV, pixelCount * sizeof(double));
-*/
-
     // cudaMemcpy: inputImage (hostInput) -> devInput
 	cudaMemcpy(devInput, inputImage->buffer, inputImage->width * inputImage->height * 3, cudaMemcpyHostToDevice);
 
     // launch kernel for rgb to hsv convertion
-//	rgb2hsv<<<gridSize, block2DSize>>>(devInput, devOutputH, devOutputS, devOutputV, inputImage->width, inputImage->height);
 	rgb2hsv<<<gridSize, block2DSize>>>(devInput, devHSV, inputImage->width, inputImage->height);
 
     // launch kernel for rgb to hsv convertion
-//	hsv2rgb<<<gridSize, block2DSize>>>(devOutputH, devOutputS, devOutputV, devOutput, inputImage->width, inputImage->height);
 	hsv2rgb<<<gridSize, block2DSize>>>(devHSV, devOutput, inputImage->width, inputImage->height);
 
 	cudaError_t err = cudaGetLastError();
@@ -978,11 +839,6 @@ void Labwork::labwork8_GPU() {
 	cudaFree(&devHSV.h);
 	cudaFree(&devHSV.s);
 	cudaFree(&devHSV.v);
-/*
-	cudaFree(&devOutputH);
-	cudaFree(&devOutputS);
-	cudaFree(&devOutputV);
-*/
 }
 
 
@@ -1093,44 +949,11 @@ void Labwork::labwork9_GPU() {
 		localHistoGather<<<histoNumBlock, 256>>>(devLocalOutput, histoCount);
 	} while (histoCount > 1);
 
-/*
-	cudaMemcpy(localHistoResult, devLocalOutput, histoCount * sizeof(Histo), cudaMemcpyDeviceToHost);
-
-	int s = 0;
-	for (int i = 0; i < 256; i++) {
-		printf("%d: %d\n", i, localHistoResult[0].values[i]);
-		s += localHistoResult[0].values[i];
-	}
-	printf("SUM: %d\n", s);
-	printf("PX COUNT: %d\n", pixelCount);
-*/
-
     // calculate probability of given intensity j
 	histoProba<<<1, 256>>>(devLocalOutput, pixelCount, devProbaJ);
 
-/*
-	double probaJ[256];
-	cudaMemcpy(probaJ, devProbaJ, 256 * sizeof(double), cudaMemcpyDeviceToHost);
-	
-	double s = 0;
-	for (int i = 0; i < 256; i++) {
-		printf("%d: %lf\n", i, probaJ[i]); 
-		s += probaJ[i];
-	}
-	printf("SUM: %lf\n", s);
-*/
-
     // calculate cdf array of range [0 ... 255]
 	computeCdf<<<1, 1>>>(devProbaJ, devCdf);
-
-/*
-	int cdf[256];
-	cudaMemcpy(cdf, devCdf, 256 * sizeof(int), cudaMemcpyDeviceToHost);
-
-	for (int i = 0; i < 256; i++) {
-		printf("%d: %d\n", i, cdf[i]); 
-	}
-*/
 
     // equalize image
 	equalize<<<numBlock, blockSize>>>(devGrayOutput, devOutput, devCdf);
@@ -1159,15 +982,6 @@ void Labwork::labwork9_GPU() {
 
 
 
-
-
-
-
-
-
-
-
-
 typedef struct {
     double value;
     int3 mean;
@@ -1177,11 +991,13 @@ __global__ void computeSD(hsv inputHSV, uchar3* inputRGB, sd* output, int width,
 
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
+    // calculate borders of the windows
     int leftBorder = min(wSize, (tid % width)) * -1;
     int rightBorder = min(wSize, width - (tid % width) - 1);
     int upBorder = min(wSize, (tid / width)) * -1;
     int downBorder = min(wSize, height - (tid / width) - 1);
 
+    // declare and iit some variables
     int temptid;
     double meanV[4] = {0};
     int nbPxWindow[4] = {0};
@@ -1194,6 +1010,7 @@ __global__ void computeSD(hsv inputHSV, uchar3* inputRGB, sd* output, int width,
 	win[i].mean.z = 0;
     }
 
+    // for loop to sum V,R,G,B of each window to calculate means later
     for (int y = upBorder; y <= downBorder; y++) {
 	for (int x = leftBorder; x <= rightBorder; x++) {
 		
@@ -1237,7 +1054,7 @@ __global__ void computeSD(hsv inputHSV, uchar3* inputRGB, sd* output, int width,
 	}
     }  
 
-
+    // calculate the means we need
     for (int i = 0; i < 4; i++) {
 	meanV[i] /= nbPxWindow[i];
 	win[i].mean.x /= nbPxWindow[i];
@@ -1245,6 +1062,7 @@ __global__ void computeSD(hsv inputHSV, uchar3* inputRGB, sd* output, int width,
 	win[i].mean.z /= nbPxWindow[i];
     }
 
+    // do another for loop to sum in preparation for standard deviation caculation
     for (int y = upBorder; y <= downBorder; y++) {
 	for (int x = leftBorder; x <= rightBorder; x++) {
 
@@ -1272,15 +1090,18 @@ __global__ void computeSD(hsv inputHSV, uchar3* inputRGB, sd* output, int width,
 	}
     }  
 
+    // calculate standard deviation
     for (int i = 0; i < 4; i++) {
 	win[i].value = sqrt(win[i].value / nbPxWindow[i]);
     }
 
+    // compare standard deviation to choose the index of the min one
     int indexMin = 0;
     indexMin = win[0].value < win[1].value ? 0 : 1;
     indexMin = win[1].value < win[2].value ? 1 : 2;
     indexMin = win[2].value < win[3].value ? 2 : 3;
 
+    // write back the smallest standard deviation into the output array
     output[tid] = win[indexMin];    
 
 }
@@ -1289,6 +1110,7 @@ __global__ void assignMean(sd* inputSD, uchar3* output) {
 
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
+    // for each pixel, assign the new RGB values from the smallest standard deviation calculated on the pixel
     output[tid].x = inputSD[tid].mean.x;
     output[tid].y = inputSD[tid].mean.y;
     output[tid].z = inputSD[tid].mean.z;
@@ -1299,7 +1121,8 @@ void Labwork::labwork10_GPU() {
     // init some variables
 	int pixelCount = inputImage->width * inputImage->height;
 	outputImage = static_cast<char *>(malloc(pixelCount * 3));
-	int wSize = 16;
+//	int wSize = 8;
+	int wSize = kuwaSize;
 
     // kernel dimensions size
 	int blockSize = 512;
@@ -1323,7 +1146,7 @@ void Labwork::labwork10_GPU() {
     // launch kernel to convert image to HSV
 	rgb2hsv<<<gridSize, block2DSize>>>(devInput, devHSV, inputImage->width, inputImage->height);	
 
-    // SD kernel launch
+    // launch kernel to compute sd of each pixel
 	sd *devSD;
 	cudaMalloc(&devSD, pixelCount * sizeof(sd));
 

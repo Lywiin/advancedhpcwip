@@ -13,6 +13,7 @@ private:
 
 public:
     char* mode;
+    int kuwaSize;
 
     void loadInputImage(std::string inputFileName);
     void loadInputImage2(std::string inputFileName);
